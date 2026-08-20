@@ -55,6 +55,13 @@ class Danfe extends DaCommon
      */
     public $exibirNumeroItemPedido = false;
     /**
+     * Parâmetro do controle se deve exibir o número do pedido de compra (tag xPed)
+     * na descrição do produto
+     *
+     * @var boolean
+     */
+    public $exibirNumeroPedidoCompra = false;
+    /**
      * Parâmetro do controle se deve concatenar automaticamente informações complementares
      * na descrição do produto, como por exemplo, informações sobre impostos.
      *
@@ -2795,6 +2802,10 @@ class Danfe extends DaCommon
 
         if ($this->exibirNumeroItemPedido && !empty($itemProd->getElementsByTagName('nItemPed')->item(0)->nodeValue)) {
             $texto .= " (ITEM " . $itemProd->getElementsByTagName('nItemPed')->item(0)->nodeValue . ")";
+        }
+
+        if ($this->exibirNumeroPedidoCompra && !empty($itemProd->getElementsByTagName('xPed')->item(0)->nodeValue)) {
+            $texto .= " (PEDIDO " . $itemProd->getElementsByTagName('xPed')->item(0)->nodeValue . ")";
         }
 
         return $texto;
