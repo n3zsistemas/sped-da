@@ -471,6 +471,9 @@ class Danfe extends DaCommon
         $this->textoAdic = str_replace(";", "\n", $this->textoAdic);
         $numlinhasdados = $this->pdf->getNumLines($this->textoAdic, $this->wAdic, $fontProduto) + 2;
         $this->textadicfontsize = $this->pdf->fontSize;
+        //limite de altura do campo dados adicionais, na paisagem o espaço é menor
+        //e o campo não pode subir sobre os campos de transporte e impostos
+        $limiteAltura = ($this->orientacao === 'L') ? 70 : 90;
         $hdadosadic = ceil($numlinhasdados * ($this->textadicfontsize));
         if ($hdadosadic > 70) {
             for ($f = 8; $f > 3; $f--) {
@@ -483,11 +486,14 @@ class Danfe extends DaCommon
                 $numlinhasdados         = $this->pdf->getNumLines($this->textoAdic, $this->wAdic, $fontProduto) + 3;
                 $this->textadicfontsize = $this->pdf->fontSize;
                 $hdadosadic             = ceil($numlinhasdados * $this->textadicfontsize);
-                if ($hdadosadic <= 90) {
+                if ($hdadosadic <= $limiteAltura) {
                     $hdadosadic = ceil($hdadosadic);
                     break;
                 }
             }
+        }
+        if ($hdadosadic > $limiteAltura) {
+            $hdadosadic = $limiteAltura;
         }
         if ($hdadosadic < 10) {
             $hdadosadic = 10;
@@ -541,6 +547,8 @@ class Danfe extends DaCommon
         }
         //total inicial de paginas
         $totPag = 1;
+        //zera o controle de itens processados
+        $this->qtdeItensProc = 0;
         //largura imprimivel em mm: largura da folha menos as margens esq/direita
         $this->wPrint = $this->maxW - ($this->margesq * 2);
         //comprimento (altura) imprimivel em mm: altura da folha menos as margens
@@ -745,6 +753,11 @@ class Danfe extends DaCommon
         $nInicial = 0;
 
         $y = $this->itens($x, $y + 1, $nInicial, $hDispo1, $pag, $totPag, $hCabecItens);
+
+        //se restarem itens que não couberam na primeira página, garante a página adicional
+        if ($this->qtdeItensProc < $qtdeItens) {
+            $totPag = max($totPag, 2);
+        }
 
         //coloca os dados do ISSQN
         if ($linhaISSQN == 1) {
@@ -1961,7 +1974,8 @@ class Danfe extends DaCommon
 
     /**
      * sizeExtraTextoFatura
-     * Calcula o espaço ocupado pelo texto da fatura. Este espaço só é utilizado quando não houver duplicata.
+     * Calcula o espaço ocupado pelo texto da fatura. Quando houver duplicatas o texto
+     * ocupa uma linha acima delas, quando não houver será exibida a forma de pagamento.
      *
      * @name   sizeExtraTextoFatura
      * @return integer
@@ -1969,12 +1983,30 @@ class Danfe extends DaCommon
     protected function sizeExtraTextoFatura()
     {
         $textoFatura = $this->getTextoFatura();
+        if ($textoFatura === "") {
+            return 0;
+        }
         //verificar se existem duplicatas
-        if ($this->dup->length == 0 && $textoFatura !== "") {
-            return 10;
+        if ($this->dup->length > 0) {
+            //o texto da fatura é exibido em uma caixa adicional acima das duplicatas
+            return 7;
+        }
+        //sem duplicatas, apenas a forma de pagamento é exibida,
+        //exceto quando a única forma de pagamento for 90-Sem Pagamento
+        $formaPag = [];
+        if (isset($this->detPag) && $this->detPag->length > 0) {
+            foreach ($this->detPag as $k => $d) {
+                $fPag = !empty($this->detPag->item($k)->getElementsByTagName('tPag')->item(0)->nodeValue)
+                    ? $this->detPag->item($k)->getElementsByTagName('tPag')->item(0)->nodeValue
+                    : '0';
+                $formaPag[$fPag] = $fPag;
+            }
+        }
+        if (count($formaPag) == 1 && isset($formaPag[90])) {
+            return 0;
         }
 
-        return 0;
+        return 10;
     }
 
     /**
@@ -2998,6 +3030,24 @@ class Danfe extends DaCommon
         $oldY = $y;
         $totItens = $this->det->length;
         //#####################################################################
+        //LIMITAR A ALTURA DA CAIXA DE ITENS
+        //impedir que a caixa ultrapasse o rodapé ou, na primeira página,
+        //invada os campos ISSQN e DADOS ADICIONAIS / RESERVADO AO FISCO
+        $yLimiteCaixa = $this->maxH - 6; //acima do rodapé
+        if ($pag == 1) {
+            $yLimiteCaixa = $this->maxH - (7 + $this->hdadosadic) - 4;
+            if (isset($this->ISSQNtot) && $this->getTagValue($this->ISSQNtot, 'vServ') > 0) {
+                $yLimiteCaixa -= 11;
+            }
+        }
+        $hmaxDisponivel = $yLimiteCaixa - ($y + 3) - 1;
+        if ($hmax > $hmaxDisponivel) {
+            $hmax = $hmaxDisponivel;
+        }
+        if ($hmax < 0) {
+            $hmax = 0;
+        }
+        //#####################################################################
         //DADOS DOS PRODUTOS / SERVIÇOS
         $texto = "DADOS DOS PRODUTOS / SERVIÇOS";
         if ($this->orientacao === 'P') {
@@ -3453,6 +3503,10 @@ class Danfe extends DaCommon
             } else {
                 $i++;
             }
+        }
+        //todos os itens foram impressos, evita reimpressão em páginas seguintes
+        if ($i >= $totItens) {
+            $nInicio = $totItens;
         }
 
         return $oldY + $hmax;
